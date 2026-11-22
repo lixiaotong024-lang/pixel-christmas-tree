@@ -33,6 +33,22 @@
     box-shadow: 0 0 0 4px #d62f3a, 0 0 0 8px #fff, 0 0 0 12px #2e9b4c; animation: pop .3s steps(4); }
   #card .box b { display: block; font-size: 13px; color: #d62f3a; margin-bottom: 8px; letter-spacing: 2px; }
   #card button { margin-top: 14px; background: #d62f3a; color: #fff; box-shadow: inset -2px -2px 0 #8f1c25, inset 2px 2px 0 #ff6b75; }
+  #wish { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(5, 7, 26, .6); }
+  #wish.show { display: flex; }
+  #wish .box { width: min(360px, 92%); padding: 18px 20px; background: #fff6e0; color: #3a1f12; font-size: 15px; text-align: center;
+    box-shadow: 0 0 0 4px #2e9b4c, 0 0 0 8px #fff, 0 0 0 12px #d62f3a; animation: pop .3s steps(4); }
+  #wish .box b { display: block; font-size: 16px; color: #d62f3a; margin-bottom: 4px; }
+  #wish p { font-size: 13px; color: #8a5a3a; margin-bottom: 10px; }
+  #wish input, #wish textarea { display: block; width: 100%; font: inherit; font-size: 14px; color: #3a1f12; background: #fff; border: none;
+    padding: 8px 10px; margin-bottom: 8px; box-shadow: inset 2px 2px 0 #e0cfa8, 0 0 0 2px #3a1f12; outline: none; resize: none; }
+  #wish input:focus, #wish textarea:focus { box-shadow: inset 2px 2px 0 #e0cfa8, 0 0 0 2px #d97757; }
+  #wish .row { display: flex; gap: 8px; justify-content: center; margin-top: 6px; }
+  #wish .send { background: #d62f3a; color: #fff; box-shadow: inset -2px -2px 0 #8f1c25, inset 2px 2px 0 #ff6b75; }
+  #wish .cancel { background: #e0cfa8; color: #3a1f12; box-shadow: inset -2px -2px 0 #b8a37a, inset 2px 2px 0 #fff3d6; }
+  #wish .err { min-height: 18px; font-size: 12px; color: #d62f3a; }
+  #wish .count { font-size: 11px; color: #a88a6a; text-align: right; margin: -4px 0 4px; }
+  #bWish { background: #2e9b4c; color: #fff; box-shadow: inset -2px -2px 0 #1a6a3a, inset 2px 2px 0 #58c060; }
+  #bWish:hover { background: #38ab57; }
   @keyframes pop { from { transform: scale(.4); } to { transform: scale(1); } }
 </style>
 </head>
@@ -42,6 +58,16 @@
     <canvas id="c"></canvas>
     <div id="bubble"></div>
     <div id="card"><div class="box"><b id="cardTitle">🎁</b><div id="cardMsg"></div><button id="cardOk">Thank you!</button></div></div>
+    <form id="wish" autocomplete="off"><div class="box">
+      <b>✉ Send a Christmas wish</b>
+      <p>Your message goes straight to the owner of this tree.</p>
+      <input id="wName" maxlength="40" placeholder="Your name (optional)">
+      <textarea id="wMsg" rows="4" maxlength="500" placeholder="Merry Christmas! ..."></textarea>
+      <div class="count"><span id="wCount">0</span>/500</div>
+      <input type="checkbox" name="botcheck" id="wBot" style="display:none" tabindex="-1">
+      <div class="err" id="wErr"></div>
+      <div class="row"><button type="button" class="cancel" id="wCancel">Cancel</button><button type="submit" class="send" id="wSend">Send ✨</button></div>
+    </div></form>
   </div>
   <div id="bar">
     <div class="grp" id="tools">
@@ -59,6 +85,7 @@
       <button id="bShake">🌲 Shake</button>
     </div>
     <div class="grp">
+      <button id="bWish">✉ Send a wish</button>
       <button id="bClear">Clear</button>
       <button id="bShot">📷 Save</button>
     </div>
@@ -361,7 +388,48 @@ document.getElementById('bShot').onclick = () => {
   const a = document.createElement('a'); a.download = 'my-pixel-christmas-tree.png'; a.href = o.toDataURL('image/png'); a.click();
   say('Click! 📷');
 };
+// ---------- 圣诞祝福 ----------
+const WISH_KEY = '070bccb2-bee6-4c4b-b806-7c20229fdc19';   // Web3Forms access key
+const wish = document.getElementById('wish'), wMsg = document.getElementById('wMsg'), wName = document.getElementById('wName'),
+  wErr = document.getElementById('wErr'), wSend = document.getElementById('wSend');
+const wishStars = [];
+function openWish() { wErr.textContent = ''; wish.classList.add('show'); setTimeout(() => wMsg.focus(), 50); tone(880, .08, 'triangle', .1); }
+const closeWish = () => wish.classList.remove('show');
+document.getElementById('bWish').onclick = openWish;
+document.getElementById('wCancel').onclick = closeWish;
+wMsg.addEventListener('input', () => { document.getElementById('wCount').textContent = wMsg.value.length; });
+wish.addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = wMsg.value.trim(), name = wName.value.trim() || 'Someone';
+  if (!msg) { wErr.textContent = 'Write a little something first ✍'; wMsg.focus(); return; }
+  const lastSent = +localStorage.getItem('pixel-xmas-wish-t') || 0;
+  if (Date.now() - lastSent < 30000) { wErr.textContent = 'Just sent one! Wait a few seconds ⏳'; return; }
+  if (!WISH_KEY) { wErr.textContent = 'Wishes aren’t set up yet.'; return; }
+  wSend.disabled = true; wSend.textContent = 'Sending…'; wErr.textContent = '';
+  try {
+    const r = await fetch('https://api.web3forms.com/submit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ access_key: WISH_KEY, subject: `🎄 New Christmas wish from ${name}`, from_name: 'Pixel Christmas Tree',
+        name, message: msg, botcheck: document.getElementById('wBot').checked }),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.message);
+    localStorage.setItem('pixel-xmas-wish-t', Date.now());
+    wMsg.value = ''; document.getElementById('wCount').textContent = 0; closeWish();
+    sendWishStar();
+  } catch (err) {
+    wErr.textContent = 'Oops, it didn’t go through. Try again?';
+  } finally { wSend.disabled = false; wSend.textContent = 'Send ✨'; }
+});
+function sendWishStar() {
+  let tx, ty; do { tx = 8 + Math.random() * (W - 16); ty = 6 + Math.random() * 60; } while (Math.hypot(tx - 28, ty - 22) < 14 || Math.abs(tx - CX) < hwAt(Math.round(ty)) + 6);
+  wishStars.push({ sx: CX, sy: 20, tx, ty, t0: performance.now() / 1000 });
+  [659.25, 783.99, 987.77, 1318.5, 1567.98].forEach((f, i) => tone(f, .3, 'triangle', .1, i * .08));
+  say('Delivered! Your wish is a star now ✨');
+}
+
 addEventListener('keydown', e => {
+  if (wish.classList.contains('show')) { if (e.key === 'Escape') closeWish(); return; }
   if (card.classList.contains('show')) { if (e.key === 'Enter' || e.key === 'Escape') card.classList.remove('show'); return; }
   const k = e.key.toLowerCase();
   if (['arrowleft', 'arrowright', 'arrowup', ' '].includes(k)) e.preventDefault();
@@ -449,6 +517,16 @@ function frame(nowMs) {
     px(s.x, s.y, '#ffffff', .25 + b * .75);
     if (s.big && b > .7) { px(s.x - 1, s.y, '#ffffff', .4); px(s.x + 1, s.y, '#ffffff', .4); px(s.x, s.y - 1, '#ffffff', .4); px(s.x, s.y + 1, '#ffffff', .4); }
   }
+  // 祝福变成的星星：从树顶飞上天空，然后一直挂在那里
+  for (const w of wishStars) {
+    const p = Math.min(1, (t - w.t0) / 1.6), e = 1 - Math.pow(1 - p, 3);
+    const x = w.sx + (w.tx - w.sx) * e, y = w.sy + (w.ty - w.sy) * e - Math.sin(p * Math.PI) * 18;
+    if (p < 1) { if (Math.random() < .7) parts.push({ x, y, vx: (Math.random() - .5) * .3, vy: Math.random() * .2, life: 25, c: Math.random() < .5 ? '#ffd84d' : '#ffffff', snow: true }); }
+    const b = p < 1 ? 1 : .6 + Math.sin(t * 2 + w.tx) * .4;
+    px(x, y, '#fff6d5');
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) px(x + dx, y + dy, '#ffd84d', b);
+    if (b > .8) for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) px(x + dx, y + dy, '#ffd84d', .4);
+  }
   // 积雪
   ctx.fillStyle = '#f4f8ff';
   for (let x = 0; x < W; x++) { const h = Math.floor(pile[x]); if (h > 0) ctx.fillRect(x, G - h, 1, h); }
@@ -530,14 +608,16 @@ function frame(nowMs) {
   // 气泡位置
   if (bubbleT && nowMs > bubbleT) { bubble.classList.remove('show'); bubbleT = 0; }
   const sc = cv.clientWidth / W;
-  bubble.style.left = (cl.x + 6) * sc + 'px';
+  const half = bubble.offsetWidth / 2 + 4;
+  bubble.style.left = Math.max(half, Math.min(cv.clientWidth - half, (cl.x + 6) * sc)) + 'px';
   bubble.style.top = (cl.y - 12) * sc + 'px';
 
   requestAnimationFrame(frame);
 }
 
 function fit() {
-  const s = Math.max(2, Math.floor(Math.min((innerWidth - 32) / W, (innerHeight - 150) / H)));
+  const fitS = Math.min((innerWidth - 24) / W, (innerHeight - 150) / H);
+  const s = fitS >= 2 ? Math.floor(fitS) : Math.max(1, Math.min(2, (innerWidth - 24) / W));
   cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
 }
 addEventListener('resize', fit); fit();
